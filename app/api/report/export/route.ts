@@ -1,43 +1,35 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { ReportExporter } from '@/lib/report-exporter';
 import { reportDataSchema, reportConfigSchema } from '@/types/report';
 
 export async function POST(req: NextRequest) {
   try {
-    const { reportData, config, format = 'pdf' } = await req.json();
+    const { reportData, config } = await req.json();
     
+    // Validate input
     const validatedData = reportDataSchema.parse(reportData);
     const validatedConfig = reportConfigSchema.parse(config);
     
+    // Generate PDF
     const exporter = new ReportExporter();
+    const pdfBuffer = await exporter.exportToPDF(validatedData, validatedConfig);
     
-    if (format === 'pdf') {
-      const pdfBuffer = await exporter.exportToPDF(validatedData, validatedConfig);
-      
-      return new Response(pdfBuffer, {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="${validatedConfig.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf"`,
-        },
-      });
-    }
+    return new NextResponse(pdfBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${validatedConfig.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf"`,
+      },
+    });
     
-    if (format === 'html') {
-      const html = exporter.generateHTML(validatedData, validatedConfig);
-      
-      return new Response(html, {
-        headers: {
-          'Content-Type': 'text/html',
-          'Content-Disposition': `attachment; filename="${validatedConfig.title.replace(/[^a-zA-Z0-9]/g, '-')}.html"`,
-        },
-      });
-    }
-    
-    return Response.json({ error: 'Unsupported format' }, { status: 400 });
   } catch (error) {
-    console.error('Export error:', error);
-    return Response.json(
-      { error: 'Export failed', details: error instanceof Error ? error.message : 'Unknown error' },
+    console.error('Export Error:', error);
+    
+    return NextResponse.json(
+      { 
+        error: 'Export failed',
+        details: error.message
+      },
       { status: 500 }
     );
   }

@@ -2,82 +2,48 @@
 
 import { useState } from 'react';
 import { ReportGeneratorForm } from '@/components/report-generator-form';
-import { ReportProgress } from '@/components/report-progress';
-import { ReportViewer } from '@/components/report-viewer';
-import { type ReportConfig, type ReportData, type ReportMetadata } from '@/types/report';
+import { type ReportConfig, type ReportData } from '@/types/report';
 
 export default function HomePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [progress, setProgress] = useState<ReportMetadata | null>(null);
-  const [currentMessage, setCurrentMessage] = useState<string>('');
   const [reportData, setReportData] = useState<ReportData | null>(null);
   const [currentConfig, setCurrentConfig] = useState<ReportConfig | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const generateReport = async (config: ReportConfig) => {
     setIsGenerating(true);
-    setProgress(null);
+    setError(null);
     setReportData(null);
     setCurrentConfig(config);
 
     try {
+      console.log('Starting report generation...');
+      
       const response = await fetch('/api/report/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate report');
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to generate report');
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split('\n');
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                
-                if (data.error) {
-                  throw new Error(data.error);
-                }
-
-                if (data.step && typeof data.progress === 'number') {
-                  setProgress(data as ReportMetadata);
-                }
-
-                if (data.message) {
-                  setCurrentMessage(data.message);
-                }
-
-                if (data.data && data.progress === 100) {
-                  setReportData(data.data);
-                }
-              } catch (parseError) {
-                console.error('Failed to parse SSE data:', parseError);
-              }
-            }
-          }
-        }
-      }
+      setReportData(result.data);
+      console.log('Report generated successfully');
+      
     } catch (error) {
       console.error('Report generation failed:', error);
-      setCurrentMessage('Failed to generate report. Please try again.');
+      setError(error instanceof Error ? error.message : 'An unexpected error occurred');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const exportReport = async (format: 'pdf' | 'html') => {
+  const exportToPDF = async () => {
     if (!reportData || !currentConfig) return;
 
     setIsExporting(true);
@@ -88,7 +54,6 @@ export default function HomePage() {
         body: JSON.stringify({
           reportData,
           config: currentConfig,
-          format,
         }),
       });
 
@@ -100,13 +65,15 @@ export default function HomePage() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${currentConfig.title.replace(/[^a-zA-Z0-9]/g, '-')}.${format}`;
+      a.download = `${currentConfig.title.replace(/[^a-zA-Z0-9]/g, '-')}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      
     } catch (error) {
       console.error('Export failed:', error);
+      setError('Failed to export PDF');
     } finally {
       setIsExporting(false);
     }
@@ -114,48 +81,133 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold text-gray-900">AI Report Generator</h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Generate comprehensive business reports with AI-powered research, analysis, and professional formatting
+          <h1 className="text-4xl font-bold text-gray-900">AI Market Research Generator</h1>
+          <p className="text-xl text-gray-600">
+            Generate comprehensive market research reports using Google Gemini AI
           </p>
         </div>
 
-        {/* Main Content */}
-        {!isGenerating && !reportData && (
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-red-700">{error}</p>
+          </div>
+        )}
+
+        {/* Form */}
+        {!reportData && (
           <ReportGeneratorForm onSubmit={generateReport} isLoading={isGenerating} />
         )}
 
-        {isGenerating && progress && (
-          <ReportProgress progress={progress} currentMessage={currentMessage} />
-        )}
-
-        {reportData && currentConfig && (
-          <ReportViewer
-            reportData={reportData}
-            config={currentConfig}
-            onExport={exportReport}
-            isExporting={isExporting}
-          />
-        )}
-
-        {/* Reset Button */}
-        {(reportData || isGenerating) && (
+        {/* Loading */}
+        {isGenerating && (
           <div className="text-center">
-            <button
-              onClick={() => {
-                setIsGenerating(false);
-                setProgress(null);
-                setReportData(null);
-                setCurrentConfig(null);
-                setCurrentMessage('');
-              }}
-              className="px-6 py-2 text-blue-600 hover:text-blue-800 font-medium"
-            >
-              Generate New Report
-            </button>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Generating your market research report...</p>
+          </div>
+        )}
+
+        {/* Results */}
+        {reportData && currentConfig && (
+          <div className="bg-white rounded-lg shadow-lg p-6 space-y-6">
+            <div className="flex justify-between items-start">
+              <h2 className="text-2xl font-bold">{currentConfig.title}</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={exportToPDF}
+                  disabled={isExporting}
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                >
+                  {isExporting ? 'Exporting...' : 'Download PDF'}
+                </button>
+                <button
+                  onClick={() => {
+                    setReportData(null);
+                    setCurrentConfig(null);
+                    setError(null);
+                  }}
+                  className="px-4 py-2 text-blue-500 border border-blue-500 rounded hover:bg-blue-50"
+                >
+                  New Report
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold mb-2">Executive Summary</h3>
+                <p className="text-gray-700">{reportData.executiveSummary}</p>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-2">Key Findings</h3>
+                <ul className="list-disc list-inside space-y-1">
+                  {reportData.keyFindings.map((finding, index) => (
+                    <li key={index} className="text-gray-700">{finding}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {reportData.marketSize && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Market Overview</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {reportData.marketSize.current && (
+                      <div className="bg-blue-50 p-4 rounded-lg text-center">
+                        <div className="text-2xl font-bold text-blue-600">
+                          {reportData.marketSize.current}
+                        </div>
+                        <div className="text-sm text-blue-800">Current Size</div>
+                      </div>
+                    )}
+                    {reportData.marketSize.projected && (
+                      <div className="bg-purple-50 p-4 rounded-lg text-center">
+                        <div className="text-2xl font-bold text-purple-600">
+                          {reportData.marketSize.projected}
+                        </div>
+                        <div className="text-sm text-purple-800">Projected Size</div>
+                      </div>
+                    )}
+                    {reportData.marketSize.growthRate && (
+                      <div className="bg-green-50 p-4 rounded-lg text-center">
+                        <div className="text-2xl font-bold text-green-600">
+                          {reportData.marketSize.growthRate}
+                        </div>
+                        <div className="text-sm text-green-800">Growth Rate</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-lg font-semibold mb-2">Strategic Recommendations</h3>
+                <ul className="list-disc list-inside space-y-1">
+                  {reportData.recommendations.map((rec, index) => (
+                    <li key={index} className="text-gray-700">{rec}</li>
+                  ))}
+                </ul>
+              </div>
+
+              {reportData.charts.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Charts Generated</h3>
+                  <div className="grid gap-4">
+                    {reportData.charts.map((chart, index) => (
+                      <div key={index} className="bg-gray-50 p-4 rounded-lg">
+                        <h4 className="font-medium mb-2">{chart.title}</h4>
+                        <p className="text-sm text-gray-600">
+                          Type: {chart.type.toUpperCase()} | Data Points: {chart.data.length}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

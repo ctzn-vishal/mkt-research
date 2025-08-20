@@ -1,27 +1,30 @@
 import puppeteer from 'puppeteer';
-import { ReportData, ReportConfig, ChartConfig } from '@/types/report';
+import { ReportData, ReportConfig } from '@/types/report';
 
 export class ReportExporter {
-  async exportToPDF(
-    reportData: ReportData, 
-    config: ReportConfig,
-    htmlContent?: string
-  ): Promise<Buffer> {
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-
+  async exportToPDF(reportData: ReportData, config: ReportConfig): Promise<Buffer> {
+    let browser;
+    
     try {
+      browser = await puppeteer.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+        ],
+      });
+
       const page = await browser.newPage();
-      
-      // Set viewport and content
       await page.setViewport({ width: 1200, height: 800 });
       
-      const html = htmlContent || this.generateHTML(reportData, config);
-      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const html = this.generateHTML(reportData, config);
+      await page.setContent(html, { 
+        waitUntil: 'networkidle0',
+        timeout: 30000 
+      });
       
-      // Generate PDF with professional formatting
       const pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
@@ -31,22 +34,17 @@ export class ReportExporter {
           bottom: '1in',
           left: '0.75in'
         },
-        displayHeaderFooter: true,
-        headerTemplate: `
-          <div style="font-size: 10px; width: 100%; text-align: center; color: #666;">
-            ${config.title}
-          </div>
-        `,
-        footerTemplate: `
-          <div style="font-size: 10px; width: 100%; text-align: center; color: #666;">
-            <span class="pageNumber"></span> of <span class="totalPages"></span>
-          </div>
-        `
       });
 
       return pdf;
+      
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      throw new Error(`Failed to generate PDF: ${error.message}`);
     } finally {
-      await browser.close();
+      if (browser) {
+        await browser.close();
+      }
     }
   }
 
@@ -58,7 +56,7 @@ export class ReportExporter {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${config.title}</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.min.js"></script>
     <style>
         body {
             font-family: 'Arial', sans-serif;
@@ -70,21 +68,13 @@ export class ReportExporter {
         }
         h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
         h2 { color: #34495e; margin-top: 30px; }
-        h3 { color: #7f8c8d; }
-        .executive-summary {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #3498db;
+        .section {
             margin: 20px 0;
-        }
-        .key-findings {
-            background: #fff;
-            border: 1px solid #ddd;
+            padding: 15px;
             border-radius: 8px;
-            padding: 20px;
-            margin: 20px 0;
         }
+        .executive-summary { background: #f8f9fa; border-left: 4px solid #3498db; }
+        .key-findings { background: #fff; border: 1px solid #ddd; }
         .chart-container {
             margin: 30px 0;
             padding: 20px;
@@ -97,120 +87,115 @@ export class ReportExporter {
             height: 400px;
             width: 100%;
         }
-        ul.recommendations {
+        .recommendations {
             background: #e8f5e8;
-            padding: 20px;
-            border-radius: 8px;
             border-left: 4px solid #27ae60;
         }
-        .risk-factors {
-            background: #fdf2e9;
-            padding: 20px;
-            border-radius: 8px;
-            border-left: 4px solid #e67e22;
-        }
-        .sources {
-            background: #f4f4f4;
-            padding: 15px;
-            border-radius: 8px;
-            font-size: 12px;
-            margin-top: 30px;
-        }
+        ul { padding-left: 20px; }
+        li { margin: 8px 0; }
     </style>
 </head>
 <body>
     <header>
         <h1>${config.title}</h1>
-        ${config.subtitle ? `<h2>${config.subtitle}</h2>` : ''}
         <p><strong>Analysis Type:</strong> ${config.analysisType.replace('-', ' ').toUpperCase()}</p>
         <p><strong>Generated:</strong> ${new Date().toLocaleDateString()}</p>
     </header>
 
-    <section class="executive-summary">
+    <div class="section executive-summary">
         <h2>Executive Summary</h2>
         <p>${reportData.executiveSummary}</p>
-    </section>
+    </div>
 
-    <section class="key-findings">
+    <div class="section key-findings">
         <h2>Key Findings</h2>
         <ul>
             ${reportData.keyFindings.map(finding => `<li>${finding}</li>`).join('')}
         </ul>
-    </section>
+    </div>
 
     ${reportData.marketSize ? `
-    <section>
+    <div class="section">
         <h2>Market Overview</h2>
         <div style="display: flex; gap: 20px; margin: 20px 0;">
             ${reportData.marketSize.current ? `
             <div style="flex: 1; background: #e3f2fd; padding: 15px; border-radius: 8px; text-align: center;">
                 <h3>Current Market Size</h3>
-                <p style="font-size: 24px; font-weight: bold; color: #1976d2;">
-                    ${reportData.marketSize.current}${reportData.marketSize.unit || ''}
+                <p style="font-size: 20px; font-weight: bold; color: #1976d2;">
+                    ${reportData.marketSize.current}
                 </p>
             </div>
             ` : ''}
             ${reportData.marketSize.projected ? `
             <div style="flex: 1; background: #f3e5f5; padding: 15px; border-radius: 8px; text-align: center;">
                 <h3>Projected Size</h3>
-                <p style="font-size: 24px; font-weight: bold; color: #7b1fa2;">
-                    ${reportData.marketSize.projected}${reportData.marketSize.unit || ''}
+                <p style="font-size: 20px; font-weight: bold; color: #7b1fa2;">
+                    ${reportData.marketSize.projected}
                 </p>
             </div>
             ` : ''}
             ${reportData.marketSize.growthRate ? `
             <div style="flex: 1; background: #e8f5e8; padding: 15px; border-radius: 8px; text-align: center;">
                 <h3>Growth Rate</h3>
-                <p style="font-size: 24px; font-weight: bold; color: #388e3c;">
-                    ${reportData.marketSize.growthRate}%
+                <p style="font-size: 20px; font-weight: bold; color: #388e3c;">
+                    ${reportData.marketSize.growthRate}
                 </p>
             </div>
             ` : ''}
         </div>
-    </section>
+    </div>
     ` : ''}
 
     ${reportData.charts.length > 0 ? `
-    <section>
+    <div class="section">
         <h2>Data Visualizations</h2>
         ${reportData.charts.map((chart, index) => `
         <div class="chart-container">
             <h3>${chart.title}</h3>
             <div class="chart-wrapper">
-                <canvas id="chart${index + 1}"></canvas>
+                <canvas id="chart${index + 1}" width="800" height="400"></canvas>
             </div>
         </div>
         `).join('')}
-    </section>
+    </div>
     ` : ''}
 
-    <section class="recommendations">
+    <div class="section recommendations">
         <h2>Strategic Recommendations</h2>
         <ul>
             ${reportData.recommendations.map(rec => `<li>${rec}</li>`).join('')}
         </ul>
-    </section>
-
-    ${reportData.riskFactors && reportData.riskFactors.length > 0 ? `
-    <section class="risk-factors">
-        <h2>Risk Factors</h2>
-        <ul>
-            ${reportData.riskFactors.map(risk => `<li>${risk}</li>`).join('')}
-        </ul>
-    </section>
-    ` : ''}
-
-    ${reportData.methodology ? `
-    <section>
-        <h2>Methodology</h2>
-        <p>${reportData.methodology}</p>
-    </section>
-    ` : ''}
+    </div>
 
     <script>
-        // Chart rendering
         ${reportData.charts.map((chart, index) => `
-        new Chart(document.getElementById('chart${index + 1}'), ${JSON.stringify(chart)});
+        try {
+            new Chart(document.getElementById('chart${index + 1}'), {
+                type: '${chart.type}',
+                data: {
+                    labels: ${JSON.stringify(chart.labels)},
+                    datasets: [{
+                        label: '${chart.title}',
+                        data: ${JSON.stringify(chart.data)},
+                        backgroundColor: ${JSON.stringify(chart.backgroundColor || ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6'])},
+                        borderColor: '${chart.borderColor || '#2c3e50'}',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: '${chart.title}'
+                        }
+                    }
+                }
+            });
+        } catch(e) {
+            console.error('Chart ${index + 1} error:', e);
+        }
         `).join('')}
     </script>
 </body>
